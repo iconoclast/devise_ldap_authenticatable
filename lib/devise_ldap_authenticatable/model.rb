@@ -20,7 +20,7 @@ module Devise
       def login_with
         self[::Devise.authentication_keys.first]
       end
-      
+
       def reset_password!(new_password, new_password_confirmation)
         if new_password == new_password_confirmation && ::Devise.ldap_update_password
           Devise::LdapAdapter.update_password(login_with, new_password)
@@ -41,43 +41,55 @@ module Devise
           return false
         end
       end
-      
+
       def ldap_groups
         Devise::LdapAdapter.get_groups(login_with)
       end
-      
+
       def ldap_dn
         Devise::LdapAdapter.get_dn(login_with)
+      end
+
+      def ldap_user_attributes(password)
+        Devise::LdapAdapter.get_user_attributes(login_with, password)
       end
 
       module ClassMethods
         # Authenticate a user based on configured attribute keys. Returns the
         # authenticated user if it's valid or nil.
-        def authenticate_with_ldap(attributes={}) 
+        def authenticate_with_ldap(attributes={})
           @login_with = ::Devise.authentication_keys.first
-          return nil unless attributes[@login_with].present? 
-          
-          # resource = find_for_ldap_authentication(conditions)
-          resource = where(@login_with => attributes[@login_with]).first
-                    
+          return nil unless attributes[@login_with].present?
+
+          resource = scoped.where(@login_with => attributes[@login_with]).first
+
           if (resource.blank? and ::Devise.ldap_create_user)
             resource = new
             resource[@login_with] = attributes[@login_with]
             resource.password = attributes[:password]
           end
-                    
-          if resource.try(:valid_ldap_authentication?, attributes[:password])
-            resource.save if resource.new_record?
-            return resource
-          else
-            return nil
+
+          return nil unless resource.try(:valid_ldap_authentication?, attributes[:password])
+
+          if ::Devise.ldap_managed_attributes
+            # update user attributes with latest info in ldap
+            # ldap_managed_attributes is a hash that maps the ldap attribute names to your user model attribute names
+            user_attrs = resource.ldap_user_attributes(attributes[:password])
+
+            new_values = {}
+            ::Devise.ldap_managed_attributes.each {|k,v| new_values[v] = user_attrs[k].first if user_attrs[k].any? }
+
+            resource.update_attributes new_values if new_values.any?
           end
+
+          resource.save if resource.new_record? || resource.changed?
+          return resource
         end
-        
+
         def update_with_password(resource)
           puts "UPDATE_WITH_PASSWORD: #{resource.inspect}"
         end
-        
+
       end
     end
   end

@@ -41,6 +41,16 @@ module Devise
       resource.dn
     end
 
+    def self.get_user_attributes(login, password_plaintext)
+      options = {:login => login,
+                 :password => password_plaintext,
+                 :ldap_auth_username_builder => ::Devise.ldap_auth_username_builder,
+                 :admin => ::Devise.ldap_use_admin_to_bind}
+
+      resource = LdapConnect.new(options)
+      resource.try(:search_user_attributes, ::Devise.ldap_managed_attributes.keys)
+    end
+
     class LdapConnect
 
       attr_reader :ldap, :login
@@ -61,6 +71,8 @@ module Devise
         @required_groups = ldap_config["required_groups"]        
         @required_attributes = ldap_config["require_attribute"]
         
+        @object_class = ldap_config["object_class"] || ldap_config["require_attribute"]["objectClass"] || '*'
+
         @ldap.auth ldap_config["admin_user"], ldap_config["admin_password"] if params[:admin] 
                 
         @login = params[:login]
@@ -149,6 +161,25 @@ module Devise
         admin_ldap.search(:filter => filter, :base => @group_base).collect(&:dn)
       end
       
+      def search_user_attributes(attrs)
+        DeviseLdapAuthenticatable::Logger.send("Searching user attributes:")
+        authenticate!
+
+        filter = Net::LDAP::Filter.eq(@attribute.to_s, @login.to_s)
+        object_filter = Net::LDAP::Filter.eq("objectClass", @object_class.to_s)
+        return_hash = {}
+
+        ldap_entry = @ldap.search(:filter => (object_filter & filter), :attributes => attrs).try(:first)
+
+        if ldap_entry.nil?
+          DeviseLdapAuthenticatable::Logger.send("Failure to find user entry for #{dn}")
+        else
+          ldap_entry.each_attribute { |key, value| return_hash[key] = value }
+        end
+
+        return_hash
+      end
+
       private
       
       def self.admin

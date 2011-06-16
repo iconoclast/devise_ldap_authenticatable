@@ -17,6 +17,10 @@ module Devise
   mattr_accessor :ldap_create_user
   @@ldap_create_user = false
   
+  # Copy user attributes to database from ldap
+  mattr_accessor :ldap_managed_attributes
+  @@ldap_managed_attributes = false
+
   mattr_accessor :ldap_config
   # @@ldap_config = "#{Rails.root}/config/ldap.yml"
   
